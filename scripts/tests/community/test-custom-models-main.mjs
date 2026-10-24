@@ -696,12 +696,14 @@ async function settle() { await new Promise((r) => setTimeout(r, 10)); }
   // is at /v1/model/info (one row per deployment, so names repeat).
   r = await h["cdb-cm:provider-set"](okSenderEv, { id: "gw", baseUrl: "https://gw.example", apiKey: "gw-secret-1234567890", preset: "gateway" });
   ok(r.ok === true, "a gateway provider is saved: " + JSON.stringify(r));
-  const gwList = { object: "list", data: ["chat-1m", "chat-262k", "no-vision", "no-reasoning", "unknown-caps", "whisper", "embed", "not-in-info"]
+  const gwList = { object: "list", data: ["chat-1m", "chat-262k", "resp", "chat-comp", "no-vision", "no-reasoning", "unknown-caps", "whisper", "embed", "not-in-info"]
     .map((id) => ({ id, object: "model", created: 1677610602, owned_by: "openai" })) };
   const gwInfo = { data: [
     { model_name: "chat-1m", model_info: { mode: "chat", max_input_tokens: 1048576, supports_vision: true, supports_reasoning: true } },
     { model_name: "chat-1m", model_info: { mode: "chat", max_input_tokens: 32768, supports_vision: false, supports_reasoning: false } },
     { model_name: "chat-262k", model_info: { mode: "chat", max_input_tokens: 262144, supports_vision: true, supports_reasoning: true } },
+    { model_name: "resp", model_info: { mode: "responses", max_input_tokens: 1048576 } },
+    { model_name: "chat-comp", model_info: { mode: "chat_completions", max_input_tokens: 262144 } },
     { model_name: "no-vision", model_info: { mode: "chat", max_input_tokens: 1048576, supports_vision: false, supports_reasoning: true } },
     { model_name: "no-reasoning", model_info: { mode: "chat", max_input_tokens: 131072, supports_vision: true, supports_reasoning: false } },
     { model_name: "unknown-caps", model_info: { mode: "chat" } },
@@ -716,9 +718,9 @@ async function settle() { await new Promise((r) => setTimeout(r, 10)); }
   const byId = Object.fromEntries((r.models || []).map((m) => [m.id, m]));
   ok(r.ok === true && r.source === "https://gw.example/v1/models" && r.infoSource === "https://gw.example/v1/model/info",
      "a gateway's list is completed from its /v1/model/info: " + JSON.stringify(r));
-  ok(r.models.map((m) => m.id).join(",") === "chat-1m,chat-262k,no-vision,no-reasoning,unknown-caps,not-in-info" &&
+  ok(r.models.map((m) => m.id).join(",") === "chat-1m,chat-262k,resp,chat-comp,no-vision,no-reasoning,unknown-caps,not-in-info" &&
      r.hidden.map((x) => x.id + ":" + x.mode).join(",") === "whisper:audio_transcription,embed:embedding",
-     "models the gateway says are not chat models are left out and reported: " + JSON.stringify(r.hidden));
+     "models the gateway says are not chat/responses/chat-completions models are left out and reported: " + JSON.stringify(r.hidden));
   ok(byId["chat-1m"].context === "1m" && byId["chat-262k"].context === "200k" && byId["no-reasoning"].context === "200k" &&
      !("vision" in byId["chat-1m"]) && !("thinking" in byId["chat-1m"]),
      "max_input_tokens sets the context (1m only from 1M up), the first row of a repeated name wins: " + JSON.stringify(byId["chat-1m"]));
@@ -734,18 +736,18 @@ async function settle() { await new Promise((r) => setTimeout(r, 10)); }
   sandbox.__fetchImpl = (url) => Promise.resolve(url === "https://gw.example/v1/models"
     ? new Response(JSON.stringify(gwList), { status: 200 }) : new Response("nope", { status: 404 }));
   r = await h["cdb-cm:models-list"](okSenderEv, "gw");
-  ok(r.ok === true && r.models.length === 8 && !("hidden" in r) && !("infoSource" in r) && r.models.every((m) => !m.context),
+  ok(r.ok === true && r.models.length === 10 && !("hidden" in r) && !("infoSource" in r) && r.models.every((m) => !m.context),
      "no /v1/model/info: the list stays as the listing gave it");
   sandbox.__fetchImpl = (url) => Promise.resolve(url === "https://gw.example/v1/models"
     ? new Response(JSON.stringify(gwList), { status: 200 }) : new Response("<html>not json</html>", { status: 200 }));
   r = await h["cdb-cm:models-list"](okSenderEv, "gw");
-  ok(r.ok === true && r.models.length === 8 && !("hidden" in r), "a /v1/model/info answer that is not that shape is ignored");
+  ok(r.ok === true && r.models.length === 10 && !("hidden" in r), "a /v1/model/info answer that is not that shape is ignored");
   // The info body cut off mid-read (the 15 s abort): the list is kept.
   sandbox.__fetchImpl = (url) => Promise.resolve(url === "https://gw.example/v1/models"
     ? new Response(JSON.stringify(gwList), { status: 200 })
     : { status: 200, ok: true, headers: new Headers(), text: () => Promise.reject(Object.assign(new Error("aborted"), { name: "AbortError" })) });
   r = await h["cdb-cm:models-list"](okSenderEv, "gw").catch((e) => ({ threw: e.message }));
-  ok(r.ok === true && r.models.length === 8 && !("hidden" in r), "a /v1/model/info body that fails to arrive leaves the list as it was: " + JSON.stringify(r).slice(0, 200));
+  ok(r.ok === true && r.models.length === 10 && !("hidden" in r), "a /v1/model/info body that fails to arrive leaves the list as it was: " + JSON.stringify(r).slice(0, 200));
   // A redirect off the host: the key is not carried along, the list is kept.
   // The stub follows the redirect itself, as fetch does, unless the request
   // asks for redirect: "manual".
@@ -758,7 +760,7 @@ async function settle() { await new Promise((r) => setTimeout(r, 10)); }
     return Promise.resolve(new Response(JSON.stringify(gwInfo), { status: 200 }));
   };
   r = await h["cdb-cm:models-list"](okSenderEv, "gw").catch((e) => ({ threw: e.message }));
-  ok(r.ok === true && r.models.length === 8 && !("hidden" in r) && !sandbox.__fetchCalls.some((c) => c.url.indexOf("elsewhere.example") !== -1),
+  ok(r.ok === true && r.models.length === 10 && !("hidden" in r) && !sandbox.__fetchCalls.some((c) => c.url.indexOf("elsewhere.example") !== -1),
      "a /v1/model/info redirect to another host is not followed: " + sandbox.__fetchCalls.map((c) => c.url).join(" "));
   // Every model's context already listed (OpenRouter): no /v1/model/info.
   sandbox.__fetchCalls.length = 0;

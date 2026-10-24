@@ -2104,10 +2104,18 @@
     });
     return any ? out : null;
   }
+  function canonicalSessionMode(mode) {
+    if (typeof mode !== "string") return "";
+    var m = mode.toLowerCase().replace(/-/g, "_");
+    if (m === "chat") return "chat";
+    if (m === "responses" || m === "response") return "responses";
+    if (m === "chat_completions" || m === "chatcompletion" || m === "chatcompletions") return "chat_completions";
+    return "";
+  }
   // The modes a Code session can run on. Anything else the gateway states
   // (embedding, audio_transcription, audio_speech, image_generation, rerank,
   // moderation...) would fail on the first turn, so it is not offered.
-  var SESSION_MODES = { chat: true, responses: true };
+  var SESSION_MODES = { chat: true, responses: true, chat_completions: true };
   _ipc.handle("cdb-cm:models-list", function (ev, providerId) {
     if (!okSender(ev)) return { ok: false, error: "rejected: unrecognized sender" };
     providerId = cleanString(providerId, 40);
@@ -2205,7 +2213,7 @@
         var hidden = [];
         var kept = models.filter(function (m) {
           var e = info[m.id];
-          if (e && e.mode && !SESSION_MODES[e.mode]) { hidden.push({ id: m.id, mode: e.mode }); return false; }
+          if (e && e.mode && !SESSION_MODES[canonicalSessionMode(e.mode)]) { hidden.push({ id: m.id, mode: e.mode }); return false; }
           return true;
         }).map(function (m) {
           var e = info[m.id];
